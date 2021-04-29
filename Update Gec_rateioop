@@ -1,0 +1,63 @@
+Declare
+     cursor cur_ag is
+ SELECT X.DT_MESANOFECHA     ,
+        X.CD_EMPRESA         ,
+        X.CD_EMPOP           ,
+        X.NR_CICLOOP         ,
+        X.NR_OP              ,
+        X.CD_SEQGRUPOPA      ,
+        X.CD_LOCAL           ,
+        X.CD_CCUSTO          ,
+        X.QT_PROCESSO        ,
+        X.QT_ESTOQUE         ,
+        X.QT_TOTAL           ,
+        X.VL_CONTABIL        ,
+        CASE
+         WHEN X.QT_PROCESSO > 0 AND (X.CD_LOCAL = 142 AND X.CD_CCUSTO = 998)
+          THEN (X.QT_PROCESSO * X.VL_CONTABIL)
+         ELSE X.VL_CUSTOMATPRIMAPS
+        END AS VL_CUSTOMATPRIMAPS ,
+        CASE
+         WHEN X.QT_ESTOQUE > 0 AND (X.CD_LOCAL = 142 AND X.CD_CCUSTO = 998)
+          THEN (X.QT_ESTOQUE * X.VL_CONTABIL)
+         ELSE X.VL_CUSTOMATPRIMAFS
+        END AS VL_CUSTOMATPRIMAFS
+   FROM (select DT_MESANOFECHA     ,
+                CD_EMPRESA         ,
+                CD_EMPOP           ,
+                NR_CICLOOP         ,
+                NR_OP              ,
+                CD_SEQGRUPOPA      ,
+                CD_LOCAL           ,
+                CD_CCUSTO          ,
+                QT_PROCESSO        ,
+                QT_ESTOQUE         ,
+                QT_TOTAL           ,
+                NVL(
+               (select MAX(URECCOPRAIA.f_prd_valor_produto(1, 'C', 5, V.CD_PRODUTO,'28/04/2021'))
+                  from ureccopraia.v_prd_prds v
+                 WHERE v.cd_seqgrupo = P.CD_SEQGRUPOPA),0) AS VL_CONTABIL , 
+                VL_CUSTOMATPRIMAPS ,           
+                VL_CUSTOMATPRIMAFS
+           from URECCOPRAIA.gec_rateioop p
+          where p.DT_MESANOFECHA = '01/01/2021'
+          ) X
+ WHERE (X.CD_LOCAL = 142 AND X.CD_CCUSTO = 998)  ;
+begin
+  for va_reg in cur_ag loop
+    update URECCOPRAIA.gec_rateioop  a
+      set a.VL_CUSTOMATPRIMAPS = va_reg.VL_CUSTOMATPRIMAPS  , 
+          a.VL_CUSTOMATPRIMAFS = va_reg.VL_CUSTOMATPRIMAFS  ,
+	      a.cd_operador = 980    , 
+		  a.dt_cadatro  = sysdate
+     where a.DT_MESANOFECHA   = va_reg.DT_MESANOFECHA
+       and a.CD_EMPRESA       = va_reg.CD_EMPRESA
+       and a.CD_EMPOP         = va_reg.CD_EMPOP
+       and a.NR_CICLOOP       = va_reg.NR_CICLOOP
+       and a.NR_OP            = va_reg.NR_OP
+       and a.CD_SEQGRUPOPA    = va_reg.CD_SEQGRUPOPA
+       and a.CD_LOCAL         = va_reg.CD_LOCAL
+       and a.CD_CCUSTO        = va_reg.CD_CCUSTO;
+      end loop;
+end;
+/  
