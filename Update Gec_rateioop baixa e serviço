@@ -1,0 +1,149 @@
+Declare
+     cursor cur_ag is
+ select DT_MESANOFECHA     ,
+       CD_EMPRESA         ,
+       CD_EMPOP           ,
+       NR_CICLOOP         ,
+       NR_OP              ,
+       CD_SEQGRUPOPA      ,
+       CD_LOCAL           ,
+       CD_CCUSTO          ,
+       qt_processo        ,
+       qt_estoque         ,
+       qt_total           ,
+       case when nvl(qt_processo,0) > 0 and nvl(vl_unitbaixampop,0)  > 0 then qt_processo * vl_unitbaixampop else 0 end as VL_CUSTOMATPRIMAPS ,
+       case when nvl(qt_processo,0) > 0 and nvl(vl_unitretorno,0)    > 0 then qt_processo * vl_unitretorno   else 0 end as vl_custoservextps  ,
+       case when nvl(qt_estoque,0)  > 0  and nvl(vl_unitbaixampop,0) > 0 then qt_estoque * vl_unitbaixampop  else 0 end as VL_CUSTOMATPRIMAFS ,
+       case when nvl(qt_estoque,0)  > 0  and nvl(vl_unitretorno,0)   > 0 then qt_estoque * vl_unitretorno    else 0 end as vl_custoservextfs  ,
+       vl_baixampop      ,
+       vl_unitbaixampop  ,
+       vl_retorno        ,
+       vl_unitretorno
+  from (
+select s.DT_MESANOFECHA     ,
+       s.CD_EMPRESA         ,
+       s.CD_EMPOP           ,
+       s.NR_CICLOOP         ,
+       s.NR_OP              ,
+       s.CD_SEQGRUPOPA      ,
+       s.CD_LOCAL           ,
+       s.CD_CCUSTO          ,
+       s.qt_processo        ,
+       s.qt_estoque         ,
+       s.qt_total           ,
+       s.VL_CUSTOMATPRIMAPS ,
+       s.vl_custoservextps  ,
+       s.VL_CUSTOMATPRIMAFS ,
+       s.vl_custoservextfs  ,
+       s1.qt_real           ,
+       s1.vl_baixampop ,
+       round(case when (nvl(s.qt_total,0) > 0 and nvl(s1.vl_baixampop,0) > 0) then s1.vl_baixampop/s.qt_total else 0 end,4) as vl_unitbaixampop ,
+       s2.vl_retorno   ,
+       round(case when (nvl(s.qt_total,0) > 0 and nvl(s2.vl_retorno,0) > 0) then s2.vl_retorno/s.qt_total else 0 end,4) as vl_unitretorno
+  from      URECCOPRAIA.gec_rateioop S ,
+            (        
+                select MP.CD_EMPRESA ,
+                       MP.NR_CICLO   ,
+                       MP.NR_OP      ,
+                       cp.cd_seqgrupo ,
+                       max(cp.qt_real) as qt_real ,
+                       round(
+                       sum(CASE
+                            WHEN NVL(DECODE(TR.TP_OPERACAO,'S',BX.QT_BAIXA,'E',BX.QT_BAIXA*-1),0) = 0
+                             THEN 0
+                            ELSE DECODE(TR.TP_OPERACAO,'S',BX.QT_BAIXA,'E',BX.QT_BAIXA*-1)
+                           END * TI.VL_UNITLIQUIDO),2) as VL_BAIXAMPOP                        
+                  from ureccopraia.PCP_OPMP      MP ,
+                       ureccopraia.PCP_BXMPOP    BX ,
+                       ureccopraia.TRA_TRANSACAO TR ,
+                       ureccopraia.TRA_TRANSITEM TI ,
+                       ureccopraia.pcp_opc       cp
+                 where MP.CD_EMPRESA = BX.CD_EMPRESA (+)
+                   and MP.NR_CICLO   = BX.NR_CICLO   (+)
+                   and MP.NR_OP      = BX.NR_OP      (+)
+                   and MP.CD_PRODUTO = BX.CD_PRODUTO (+)
+                   ---
+                   and BX.CD_EMPRESA   = TR.CD_EMPRESA   (+)
+                   and BX.NR_TRANSACAO = TR.NR_TRANSACAO (+)
+                   and BX.DT_TRANSACAO = TR.DT_TRANSACAO (+)
+                   and TR.DT_TRANSACAO (+) < '01/01/2021'
+                   ---
+                   and MP.CD_EMPRESA = cp.CD_EMPRESA
+                   and MP.NR_CICLO   = cp.NR_CICLO
+                   and MP.NR_OP      = cp.NR_OP
+                   ---
+                   and TR.CD_EMPRESA   = TI.CD_EMPRESA
+                   and TR.NR_TRANSACAO = TI.NR_TRANSACAO
+                   and TR.DT_TRANSACAO = TI.DT_TRANSACAO
+                   and MP.CD_PRODUTO   = TI.CD_PRODUTO
+                   AND NVL(TI.VL_UNITLIQUIDO,0) <> 0
+                   and TR.TP_SITUACAO (+) = '4'
+                   ---
+                   and MP.CD_EMPRESA = 1
+                   AND MP.NR_CICLO >= 1
+                   and not cp.tp_situacao = 40
+                   and not cp.tp_op in (7)
+                 group by MP.CD_EMPRESA,
+                          MP.NR_CICLO,
+                          MP.NR_OP,
+                          cp.cd_seqgrupo
+                          ) s1 ,
+(
+select X.CD_EMPTRANSACAO AS CD_EMPRESA ,
+       X2.NR_CICLO   ,
+       x2.NR_OP      ,
+       max(y.dt_cadastro) as dt_cadastro,
+       sum(X2.QT_RETORNO * X2.VL_UNITARIO) AS VL_RETORNO
+  from URECCOPRAIA.cdf_rtntra      x ,
+       URECCOPRAIA.tra_transacao   y ,
+       ureccopraia.CDF_RETORNO    x1 ,
+       ureccopraia.V_CDF_RTNOPSRV x2
+ where x.cd_emptransacao = y.cd_empresa
+   and x.nr_transacao    = y.nr_transacao
+   and x.dt_transacao    = y.dt_transacao
+   ---
+   and x.cd_empretorno = x1.cd_empresa
+   and x.nr_retorno = x1.nr_retorno
+   and x.cd_empretorno = x2.cd_empretorno
+   and x.nr_retorno = x2.nr_retorno
+   and x.cd_empretorno = 1
+   and (x.tp_relacionamento = 2 and y.tp_situacao = 4)
+   and nvl(x2.vl_unitario,0) > 0
+   and y.DT_TRANSACAO (+) < '01/01/2021'
+ group by X.CD_EMPTRANSACAO ,
+          X2.NR_CICLO   ,
+          x2.NR_OP      ) s2
+          
+where s.cd_empop   = s1.cd_empresa (+)
+  and s.nr_cicloop = s1.nr_ciclo (+)
+  and s.nr_op      = s1.nr_op (+)
+  and s.cd_empresa = 1
+  and s.dt_mesanofecha = '01/01/2021'
+  and s.cd_local = 142
+  and s.cd_ccusto = 998
+  ---
+  and s.cd_empop   = s2.cd_empresa (+)
+  and s.nr_cicloop = s2.nr_ciclo (+)
+  and s.nr_op      = s2.nr_op (+)
+   )
+  ;
+begin
+  for va_reg in cur_ag loop
+    update URECCOPRAIA.gec_rateioop  a
+      set a.VL_CUSTOMATPRIMAPS = va_reg.VL_CUSTOMATPRIMAPS  , 
+          a.VL_CUSTOMATPRIMAFS = va_reg.VL_CUSTOMATPRIMAFS  ,
+          a.vl_custoservextps  = va_reg.vl_custoservextps   ,
+          a.vl_custoservextfs  = va_reg.vl_custoservextfs   ,
+	      a.cd_operador = 975     , 
+		  a.dt_cadatro  = sysdate
+     where a.DT_MESANOFECHA   = va_reg.DT_MESANOFECHA
+       and a.CD_EMPRESA       = va_reg.CD_EMPRESA
+       and a.CD_EMPOP         = va_reg.CD_EMPOP
+       and a.NR_CICLOOP       = va_reg.NR_CICLOOP
+       and a.NR_OP            = va_reg.NR_OP
+       and a.CD_SEQGRUPOPA    = va_reg.CD_SEQGRUPOPA
+       and a.CD_LOCAL         = va_reg.CD_LOCAL
+       and a.CD_CCUSTO        = va_reg.CD_CCUSTO;
+      end loop;
+end;
+/      
